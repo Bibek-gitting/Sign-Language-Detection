@@ -1,0 +1,8 @@
+/.venv
+
+# Ignore image dataset and generated data
+/Image/*
+/MP_Data/*
+
+# Python cache
+/__pycache__/
