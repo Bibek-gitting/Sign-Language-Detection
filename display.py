@@ -1,3 +1,6 @@
+from queue import Queue
+import subprocess
+
 from features import *
 import time
 from keras.utils import to_categorical
@@ -5,108 +8,204 @@ from keras.models import model_from_json
 from keras.layers import LSTM, Dense
 from keras.callbacks import TensorBoard
 from collections import Counter, deque
+import pyttsx3
 
 last_hand_time = time.time()
 timeout = 5
-json_file = open("model.json", "r")
-model_json = json_file.read()
-json_file.close()
+
+# Detection variables
+sentence = []
+accuracy = []
+predictions = deque(maxlen=15)
+
+threshold = 0.75
+last_spoken_gesture = None
+last_spoken_time = 0
+stable_candidate = None
+last_accepted_gesture = False
+stable_count = 0
+STABLE_FRAMES_REQUIRED = 8
+speak_delay = 0.5  # tighter response
+mismatch_count = 0
+MAX_MISMATCH = 2
+
+# Word building variables
+current_word = ""
+all_words = []
+space_added = False          # prevent multiple spaces
+last_gesture_time = time.time()
+
+last_speech_time = 0
+SPEECH_COOLDOWN = 1.0
+
+# Load model
+with open("model.json", "r") as json_file:
+    model_json = json_file.read()
+
 model = model_from_json(model_json)
 model.load_weights("model.h5")
 
-colors = []
-for i in range(0,20):
-    colors.append((245,117,16))
-print(len(colors))
+# Initialize text-to-speech engine
+engine = pyttsx3.init()
+engine.setProperty('rate', 150)
+speech_queue = Queue()
 
-def prob_viz(res, actions, input_frame, colors,threshold):
+colors = [(245,117,16) for _ in range(20)]
+
+def prob_viz(res, actions, input_frame, colors, threshold):
     output_frame = input_frame.copy()
     for num, prob in enumerate(res):
         cv2.rectangle(output_frame, (0,60+num*40), (int(prob*100), 90+num*40), colors[num], -1)
-        cv2.putText(output_frame, actions[num], (0, 85+num*40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2, cv2.LINE_AA)
-        
+        cv2.putText(output_frame, actions[num], (0, 85+num*40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2, cv2.LINE_AA)
     return output_frame
 
+def speak_gesture(text):
+    global last_speech_time
 
-# 1. New detection variables
-sequence = []
-sentence = []
-accuracy=[]
-predictions = deque(maxlen=15)
-threshold = 0.6 
+    current_time = time.time()
+
+    if current_time - last_speech_time < SPEECH_COOLDOWN:
+        return
+
+    last_speech_time = current_time
+
+    safe_text = text.replace("'", "")
+
+    command = [
+        "powershell",
+        "-Command",
+        f"""
+        Add-Type -AssemblyName System.Speech;
+        $speak = New-Object System.Speech.Synthesis.SpeechSynthesizer;
+        $speak.Speak('{safe_text}');
+        """
+    ]
+
+    subprocess.Popen(
+        command,
+        creationflags=subprocess.CREATE_NO_WINDOW
+    )
+
+
 
 cap = cv2.VideoCapture(0)
-# cap = cv2.VideoCapture("https://192.168.43.41:8080/video")
-# Set mediapipe model 
+
 with mp_hands.Hands(
-    model_complexity=0,
-    min_detection_confidence=0.7,
-    min_tracking_confidence=0.7) as hands:
+    model_complexity=1,
+    min_detection_confidence=0.65, # Adjusted for better detection
+    min_tracking_confidence=0.7) as hands: #Adjusted for better tracking/movement
+
     while cap.isOpened():
 
-        # Read feed
         ret, frame = cap.read()
+        if not ret:
+            break
 
-        # Make detections
-        cropframe=frame[40:400,0:300]
-        # print(frame.shape)
-        frame=cv2.rectangle(frame,(0,40),(300,400),255,2)
-        # frame=cv2.putText(frame,"Active Region",(75,25),cv2.FONT_HERSHEY_COMPLEX_SMALL,2,255,2)
-        cv2.putText(frame,"Active Region",(10,35), cv2.FONT_HERSHEY_SIMPLEX,0.7,(255,0,0),2)
+        #Active region border
+        cropframe = frame[40:400, 0:300]
+        frame = cv2.rectangle(frame, (0,40), (300,400), 255, 2)
+        cv2.putText(frame, "Active Region", (10,35),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,0,0), 2)
+
         image, results = mediapipe_detection(cropframe, hands)
-        # print(results)
-        
-        # Draw hand landmarks
+
+        # Draw landmarks
         if results.multi_hand_landmarks:
             for handLms in results.multi_hand_landmarks:
                 mp_drawing.draw_landmarks(cropframe, handLms, mp_hands.HAND_CONNECTIONS)
 
-        # 2. Prediction logic
-        currtent_time = time.time()
+        current_time = time.time()
         keypoints = extract_keypoints(results)
+
         if keypoints is not None and np.any(keypoints):
-            last_hand_time = currtent_time
+            space_added = False # reset space flag on new hand
+            last_hand_time = current_time
+            last_gesture_time = current_time
+
             res = model.predict(np.expand_dims(keypoints, axis=0), verbose=0)[0]
-            print(actions[np.argmax(res)])
-            predictions.append(np.argmax(res))
-            
-            #3. Viz logic
-            most_common = Counter(predictions).most_common(1)[0][0]
-            if most_common == np.argmax(res) and res[most_common] > threshold:
-                if len(sentence) == 0 or actions[most_common] != sentence[-1]:
-                    sentence.append(actions[most_common])
-                    accuracy.append(f"{res[most_common]*100:.2f}")
-                # if np.unique(predictions[-10:])[0]==np.argmax(res): 
-                #     if res[np.argmax(res)] > threshold: 
-                #         if len(sentence) > 0: 
-                #             if actions[np.argmax(res)] != sentence[-1]:
-                #                 sentence.append(actions[np.argmax(res)])
-                #                 accuracy.append(str(res[np.argmax(res)]*100))
-                #         else:
-                #             sentence.append(actions[np.argmax(res)])
-                #             accuracy.append(str(res[np.argmax(res)]*100)) 
+            predicted_idx = np.argmax(res)
+            confidence = res[predicted_idx]
 
-            if len(sentence) > 1: 
-                    sentence = sentence[-1:]
-                    accuracy=accuracy[-1:]
+            predictions.append(predicted_idx)  # keep for display smoothing if needed
+            most_common_idx = Counter(predictions).most_common(1)[0][0]
+            # USE DIRECT PREDICTION (NO most_common for speech)
+            if confidence > threshold:
+                current_gesture = actions[most_common_idx]
+                if stable_candidate is None:
+                    stable_candidate = current_gesture
+                #Track stable frames
+                if current_gesture == stable_candidate:
+                    stable_count +=1
+                    mismatch_count = 0
+                else:
+                    mismatch_count += 1
+                    if mismatch_count >= MAX_MISMATCH:
+                        stable_candidate = current_gesture
+                        stable_count = 1
+                        mismatch_count = 0
 
-                # Viz probabilities
-                # frame = prob_viz(res, actions, frame, colors,threshold)
-            
+                print(f"Gesture: {current_gesture} | stable_count: {stable_count} | last_spoken: {last_spoken_gesture}")
+
+                # Update display
+                if len(sentence) == 0 or current_gesture != sentence[-1]:
+                    sentence.append(current_gesture)
+                    accuracy.append(f"{confidence*100:.2f}")
+
+                # REAL FIXED SPEAK LOGIC
+                if (stable_count >= STABLE_FRAMES_REQUIRED and current_gesture != last_accepted_gesture):
+                    print(f"SPEAKING: {current_gesture}")
+                    speak_gesture(current_gesture)
+                    current_word += current_gesture
+                    space_added = False
+                    last_spoken_gesture = current_gesture
+                    last_accepted_gesture = current_gesture
+                    stable_count = 0
+
+            if len(sentence) > 1:
+                sentence = sentence[-1:]
+                accuracy = accuracy[-1:]
+
         else:
-            if currtent_time - last_hand_time > timeout:
-                sequence = []
+            if (current_time - last_hand_time) > 1.5:
+                if current_word and not space_added:
+                    all_words.append(current_word)
+                    speak_gesture("space")
+                    print(f"Word completed: {current_word}")
+                    current_word = ""
+                    space_added = True
+                last_spoken_gesture = None
+                stable_candidate = None
+                stable_count = 0
+                last_accepted_gesture = None
+            if current_time - last_hand_time > timeout:
                 predictions.clear()
+
+        # Display output
         cv2.rectangle(frame, (0,0), (300, 40), (245, 117, 16), -1)
-        cv2.putText(frame,"Output: -"+' '.join(sentence)+''.join(accuracy), (10,30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(frame, "Output: " + ' '.join(sentence) + "  " + ''.join(accuracy),
+                    (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1,
+                    (255, 255, 255), 2, cv2.LINE_AA)
+
+        display_text = ' '.join(all_words)
+        if current_word:
+            display_text += (" " if all_words else "") + current_word
         
-        # Show to screen
+        words_on_screen = str(display_text[-20:] if len(display_text) > 20 else display_text)
+
+        if not words_on_screen:
+            words_on_screen = " "
+        # h, w = int(frame.shape[0]), int(frame.shape[1])
+        cv2.rectangle(frame, (0, 430), (640, 480), (30, 30, 30), -1)
+        cv2.putText(frame, words_on_screen,
+                    (10, 465), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
+                    (0, 255, 0), 2, cv2.LINE_AA)
+        # print(type(words_on_screen), repr(words_on_screen))
         frame[40:400, 0:300] = cropframe
         cv2.imshow('OpenCV Feed', frame)
 
-        # Break gracefully
         if cv2.waitKey(10) & 0xFF == ord('q'):
             break
+
     cap.release()
     cv2.destroyAllWindows()

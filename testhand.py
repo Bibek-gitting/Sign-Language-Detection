@@ -1,19 +1,26 @@
 import numpy as np
-import os
 import cv2
 
-# points = np.load("MP_Data/A/1/2.npy") 
-# points = points.reshape(21, 3)
+points = np.load("MP_Data/D/2/1.npy") 
+points = points.reshape(21, 3)
 
-# img = np.zeros((480, 640, 3), dtype=np.uint8)
+img = np.zeros((480, 640, 3), dtype=np.uint8)
 
-# for x, y, z in points:
-#     cx = int(x * 640)
-#     cy = int(y * 480)
-#     cv2.circle(img, (cx, cy), 5, (0,255,0), -1)
+# Visualization parameters
+scale = 200                 # controls hand size
+offset_x, offset_y = 320, 240  # center of image
 
-# cv2.imshow("Keypoints", img)
-# cv2.waitKey(0)
+# Draw points
+for x, y, z in points:
+    cx = int(x * scale + offset_x)
+    cy = int(y * scale + offset_y)
+    cv2.circle(img, (cx, cy), 6, (0, 255, 0), -1)
+
+cv2.imshow("Hand Keypoints - A", img)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+
 
 
 
@@ -28,10 +35,10 @@ import cv2
 
 # print("Zero frames:", bad_files)
 
-a = np.load("MP_Data/A/1/2.npy")
-b = np.load("MP_Data/A/1/3.npy")
+# a = np.load("MP_Data/A/1/2.npy")
+# b = np.load("MP_Data/A/1/3.npy")
 
-print("L2 distance:", np.linalg.norm(a - b))
-c = np.load("MP_Data/T/1/2.npy")
-print("L2 distance (diff class):", np.linalg.norm(a - c))
+# print("L2 distance:", np.linalg.norm(a - b))
+# c = np.load("MP_Data/T/1/2.npy")
+# print("L2 distance (diff class):", np.linalg.norm(a - c))
 

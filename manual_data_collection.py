@@ -31,8 +31,6 @@ while True:
             'x': len(os.listdir(directory+"/X")),
             'y': len(os.listdir(directory+"/Y")),
             'z': len(os.listdir(directory+"/Z")),
-            'del': len(os.listdir(directory+"/del")),
-            'space': len(os.listdir(directory+"/space")),
             }
     # cv2.putText(frame, "a : "+str(count['a']), (10, 100), cv2.FONT_HERSHEY_PLAIN, 1, (0,255,255), 1)
     # cv2.putText(frame, "b : "+str(count['b']), (10, 110), cv2.FONT_HERSHEY_PLAIN, 1, (0,255,255), 1)
@@ -121,12 +119,12 @@ while True:
     if interrupt & 0xFF == ord('z'):
         cv2.imwrite(directory+'/Z/'+str(count['z'])+'.jpg',frame)
 
-    # SPACE
-    if interrupt & 0xFF == ord(' '):
-        cv2.imwrite(directory + '/SPACE/' + str(count['space']) + '.jpg', frame)
-    # DELETE (keycode 0 as delete key gives 0 as interrupt kry)
-    if interrupt & 0xFF == 0:   
-        cv2.imwrite(directory + '/DEL/' + str(count['del']) + '.jpg', frame)
+    # # SPACE
+    # if interrupt & 0xFF == ord(' '):
+    #     cv2.imwrite(directory + '/SPACE/' + str(count['space']) + '.jpg', frame)
+    # # DELETE (keycode 0 as delete key gives 0 as interrupt kry)
+    # if interrupt & 0xFF == 0:   
+    #     cv2.imwrite(directory + '/DEL/' + str(count['del']) + '.jpg', frame)
 
 
 cap.release()

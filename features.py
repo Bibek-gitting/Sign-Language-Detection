@@ -26,7 +26,6 @@ def draw_styled_landmarks(image, results):
             mp_drawing_styles.get_default_hand_landmarks_style(),
             mp_drawing_styles.get_default_hand_connections_style())
 
-
 def extract_keypoints(results):
     if not results.multi_hand_landmarks:
       return None
